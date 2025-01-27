@@ -1,42 +1,33 @@
 package handlers
 
 import (
-	"net/http"
-
+	"amass-scanner/models"
 	"amass-scanner/services"
-	"amass-scanner/utils"
 	"github.com/gin-gonic/gin"
+	"net/http"
 )
 
 // BatchScanHandler handles multiple domain scans from a file
 func BatchScanHandler(c *gin.Context) {
-	file, err := c.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'file' upload"})
+	// Get company ID from the context (set by auth middleware)
+	companyID := c.MustGet("company_id").(uint)
+
+	var request models.BatchScanRequest
+	if err := c.BindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 		return
 	}
 
-	src, err := file.Open()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to open file: " + err.Error()})
-		return
-	}
-	defer src.Close()
-
-	domains, err := utils.ReadDomainsFromFile(src)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Error reading file: " + err.Error()})
+	if len(request.Domains) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No domains provided"})
 		return
 	}
 
-	results := make(map[string][]string)
-	for _, domain := range domains {
-		scanResults, err := services.RunAmassScan(domain)
-		if err != nil {
-			results[domain] = []string{"Error: " + err.Error()}
-		} else {
-			results[domain] = scanResults
-		}
+	// Pass both the request and companyID to RunBatchScan
+	results, err := services.RunBatchScan(&request, companyID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"results": results})
